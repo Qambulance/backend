@@ -16,6 +16,7 @@ fn main() {
         "Listening on http://{}:{}",
         server.get_host(),
         server.get_port()
+    );
 
     server.serve_await().unwrap();
 }
