@@ -1,6 +1,7 @@
 use blank_web::Blank;
 use serde::Deserialize;
 use serde_json::from_str;
+use ureq::post as post_http;
 
 #[derive(Default, Deserialize)]
 struct Location {
@@ -26,7 +27,15 @@ fn main() {
 
     server.route_func("/quick", |rq, out| {
         if rq.is_post() {
-            if rq.content_type().unwrap_or_default() == "application/json" {
+            if rq
+                .content_type()
+                .unwrap_or_default()
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                == "application/json"
+            {
                 let QambulanceQuickQuery {
                     location:
                         Location {
@@ -34,7 +43,7 @@ fn main() {
                             longitude,
                         },
                 } = match rq.body_text() {
-                    Ok(body) => match from_str::<QambulanceQuickQuery>(&body) {
+                    Ok(body) => match from_str::<QambulanceQuickQuery>(body) {
                         Ok(q) => q,
                         Err(_) => {
                             out.bad_request();
@@ -46,6 +55,44 @@ fn main() {
                         return;
                     }
                 };
+
+                if !latitude.is_finite()
+                    || !longitude.is_finite()
+                    || !(-90.0..=90.0).contains(&latitude)
+                    || !(-180.0..=180.0).contains(&longitude)
+                {
+                    out.bad_request().json("{\"error\":true}");
+                    return;
+                }
+
+                let query = format!(
+                    r#"[out:json][timeout:25];
+                    (
+                        node["amenity"="hospital"](around:5000,{},{});
+                        way["amenity"="hospital"](around:5000,{},{});
+                        relation["amenity"="hospital"](around:5000,{},{});
+                    );
+                    out center;"#,
+                    latitude, longitude, latitude, longitude, latitude, longitude
+                );
+
+                let response = post_http("https://overpass-api.de/api/interpreter")
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .send_form([("data", query.as_str())]);
+
+                match response {
+                    Ok(response) => match response.into_body().read_to_string() {
+                        Ok(body) => {
+                            out.json(&body);
+                        }
+                        Err(_) => {
+                            out.json(r#"{"error":"Failed to read Overpass response"}"#);
+                        }
+                    },
+                    Err(_) => {
+                        out.json(r#"{"error":"Overpass API request failed"}"#);
+                    }
+                }
             } else {
                 out.bad_request();
             }
