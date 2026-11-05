@@ -193,12 +193,12 @@ fn main() {
 
     server.route_func("/credits", |_rq, out| {
         out.json(r#"{
-            "credits": [
-                "This API was created by": "Kyam (Kushaal Srinandan Reddy B <koolcoolkoolcoolkoolkool@gmail.com>)",
-                "Overpass": "This API uses overpass"
-            ],
-            "thanks for": "asking"
-        }"#);
+    "credits": [
+        "This API was created by": "Kyam (Kushaal Srinandan Reddy B <koolcoolkoolcoolkoolkool@gmail.com>)",
+        "Overpass": "This API uses overpass"
+    ],
+    "thanks for": "asking"
+}"#);
     });
 
     server.port(5748);
