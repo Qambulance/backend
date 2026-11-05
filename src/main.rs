@@ -2,6 +2,7 @@ use blank_web::Blank;
 use serde::Deserialize;
 use serde_json::from_str;
 use std::env::var as env_var;
+use std::process::exit as exit_with_exit_code;
 use ureq::post as post_http;
 
 const HOME_ROUTE: &str = "/";
@@ -226,7 +227,7 @@ fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> u64 {
     (earth_radius * 2.0 * a.sqrt().asin()).round() as u64
 }
 
-fn main() {
+fn server() -> Blank {
     let mut server = Blank::new();
 
     server.route_func(HOME_ROUTE, |rq, out| {
@@ -385,5 +386,12 @@ fn main() {
         server.get_port()
     );
 
-    server.serve_await().unwrap();
+    server
+}
+
+fn main() {
+    exit_with_exit_code(match server().serve_await() {
+        Ok(_) => 0,
+        Err(_) => 1,
+    });
 }
