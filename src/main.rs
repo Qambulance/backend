@@ -113,7 +113,12 @@ fn main() {
                         relation["amenity"="hospital"](around:5000,{},{});
                     );
                     out center;"#,
-                    user_latitude, user_longitude, user_latitude, user_longitude, user_latitude, user_longitude
+                    user_latitude,
+                    user_longitude,
+                    user_latitude,
+                    user_longitude,
+                    user_latitude,
+                    user_longitude
                 );
 
                 let response = post_http("https://overpass-api.de/api/interpreter")
@@ -161,18 +166,21 @@ fn main() {
                                     "hospitals": hospitals
                                 });
 
-                                out.json(&result.to_string()).ok();
+                                out.json(result.to_string()).ok();
                             }
                             Err(_) => {
-                                out.json(r#"{"error": "Failed to parse overpass response"}"#).internal_server_error();
+                                out.json(r#"{"error": "Failed to parse overpass response"}"#)
+                                    .internal_server_error();
                             }
-                        }
+                        },
                         Err(_) => {
-                            out.json(r#"{"error":"Failed to read Overpass response"}"#).internal_server_error();
+                            out.json(r#"{"error":"Failed to read Overpass response"}"#)
+                                .internal_server_error();
                         }
                     },
                     Err(_) => {
-                        out.json(r#"{"error":"Overpass API request failed"}"#).internal_server_error();
+                        out.json(r#"{"error":"Overpass API request failed"}"#)
+                            .internal_server_error();
                     }
                 }
             } else {
@@ -181,6 +189,16 @@ fn main() {
         } else {
             out.method_not_allowed();
         }
+    });
+
+    server.route_func("/credits", |_rq, out| {
+        out.json(r#"{
+            "credits": [
+                "This API was created by": "Kyam (Kushaal Srinandan Reddy B <koolcoolkoolcoolkoolkool@gmail.com>)",
+                "Overpass": "This API uses overpass"
+            ],
+            "thanks for": "asking"
+        }"#);
     });
 
     server.port(5748);
