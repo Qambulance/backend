@@ -11,6 +11,8 @@ const CREDITS_ROUTE: &str = "/credits";
 
 const HTTP_JSON_CONTEXT: &str = "application/json";
 const HTTP_CONTENT_TYPE_HEADER: &str = "Content-Type";
+const HTTP_GET_METHOD: &str = "GET";
+const HTTP_POST_METHOD: &str = "POST";
 const HTTP_FORM_ENCODED_CONTENT: &str = "application/x-www-form-urlencoded";
 
 const DEFAULT_PORT: u16 = 7878;
@@ -24,6 +26,94 @@ const CREDITS: &str = r#"{
     ],
     "thanks for": "asking"
 }"#;
+
+const HELLO_MESSAGE: &str = r#"{
+    "ok": true,
+    "message": "Hello, Bro!"
+}"#;
+
+const INVALID_JSON_STRUCTURE: &str = r#"{
+    "ok": false,
+    "hospitals": [],
+    "msg": "Invalid structure, please try again with correct structure"
+}"#;
+
+const INVALID_CONTENT_TYPE: &str = r#"{
+    "ok": false,
+    "hospitals": [],
+    "msg": "Invalid content type. Use application/json"
+}"#;
+
+const INVALID_JSON_BODY: &str = r#"{
+    "ok": false,
+    "hospitals": [],
+    "msg": "Invalid JSON request body"
+}"#;
+
+const INVALID_LOCATION: &str = r#"{
+    "ok": false,
+    "hospitals": [],
+    "msg": "Invalid location coordinates"
+}"#;
+
+const OVERPASS_REQUEST_FAILED: &str = r#"{
+    "ok": false,
+    "hospitals": [],
+    "msg": "Failed to contact Overpass API"
+}"#;
+
+const OVERPASS_RESPONSE_READ_FAILED: &str = r#"{
+    "ok": false,
+    "hospitals": [],
+    "msg": "Failed to read Overpass response"
+}"#;
+
+const OVERPASS_RESPONSE_PARSE_FAILED: &str = r#"{
+    "ok": false,
+    "hospitals": [],
+    "msg": "Failed to parse Overpass response"
+}"#;
+
+macro_rules! invalid_method_response {
+    ($method:expr, $valid_method:expr, $use_hospitals:expr) => {
+        format!(
+            "{{ \"ok\": false, {}, \"{}\": \"Invalid method {}, use {}\" }}",
+            if $use_hospitals {
+                "\"hospitals\": []"
+            } else {
+                ""
+            },
+            if $use_hospitals { "msg" } else { "message" },
+            $method,
+            $valid_method
+        )
+    };
+}
+
+macro_rules! quick_json_response {
+    ($hospitals:expr) => {
+        serde_json::json!({
+            "hospitals": $hospitals,
+            "ok": true,
+            "msg": "Successfully returned hospitals"
+        })
+    };
+}
+
+macro_rules! overpass_query {
+    ($latitude:expr, $longitude:expr) => {
+        format!(
+            r#"[out:json][timeout:25];
+            (
+                node["amenity"="hospital"](around:5000,{},{});
+                way["amenity"="hospital"](around:5000,{},{});
+                relation["amenity"="hospital"](around:5000,{},{});
+            );
+            out center;"#,
+            $latitude, $longitude, $latitude, $longitude, $latitude, $longitude
+        )
+    };
+}
 
 #[derive(Default, Deserialize)]
 struct Location {
@@ -79,12 +169,16 @@ fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> u64 {
 fn main() {
     let mut server = Blank::new();
 
-    server.route_func(HOME_ROUTE, |_rq, out| {
-        out.json(
-            "{\
-        \"message\": \"Hello, Bro!\"\
-       }",
-        );
+    server.route_func(HOME_ROUTE, |rq, out| {
+        if !rq.is_get() {
+            out.method_not_allowed().json(invalid_method_response!(
+                rq.method(),
+                HTTP_GET_METHOD,
+                false
+            ));
+            return;
+        }
+        out.json(HELLO_MESSAGE).ok();
     });
 
     server.route_func(QUICK_ROUTE, |rq, out| {
@@ -108,12 +202,12 @@ fn main() {
                     Ok(body) => match from_str::<QambulanceQuickQuery>(body) {
                         Ok(q) => q,
                         Err(_) => {
-                            out.bad_request();
+                            out.bad_request().json(INVALID_JSON_BODY);
                             return;
                         }
                     },
                     Err(_) => {
-                        out.bad_request();
+                        out.bad_request().json(INVALID_JSON_STRUCTURE);
                         return;
                     }
                 };
@@ -123,25 +217,11 @@ fn main() {
                     || !(-90.0..=90.0).contains(&user_latitude)
                     || !(-180.0..=180.0).contains(&user_longitude)
                 {
-                    out.bad_request().json("{\"error\":true}");
+                    out.bad_request().json(INVALID_LOCATION);
                     return;
                 }
 
-                let query = format!(
-                    r#"[out:json][timeout:25];
-                    (
-                        node["amenity"="hospital"](around:5000,{},{});
-                        way["amenity"="hospital"](around:5000,{},{});
-                        relation["amenity"="hospital"](around:5000,{},{});
-                    );
-                    out center;"#,
-                    user_latitude,
-                    user_longitude,
-                    user_latitude,
-                    user_longitude,
-                    user_latitude,
-                    user_longitude
-                );
+                let query = overpass_query!(user_latitude, user_longitude);
 
                 let response = post_http(OVERPASS_URL)
                     .header(HTTP_CONTENT_TYPE_HEADER, HTTP_FORM_ENCODED_CONTENT)
@@ -184,37 +264,38 @@ fn main() {
                                     })
                                     .collect();
 
-                                let result = serde_json::json!({
-                                    "hospitals": hospitals
-                                });
+                                let result = quick_json_response!(hospitals);
 
                                 out.json(result.to_string()).ok();
                             }
                             Err(_) => {
-                                out.json(r#"{"error": "Failed to parse overpass response"}"#)
+                                out.json(OVERPASS_RESPONSE_PARSE_FAILED)
                                     .internal_server_error();
                             }
                         },
                         Err(_) => {
-                            out.json(r#"{"error":"Failed to read Overpass response"}"#)
+                            out.json(OVERPASS_RESPONSE_READ_FAILED)
                                 .internal_server_error();
                         }
                     },
                     Err(_) => {
-                        out.json(r#"{"error":"Overpass API request failed"}"#)
-                            .internal_server_error();
+                        out.json(OVERPASS_REQUEST_FAILED).internal_server_error();
                     }
                 }
             } else {
-                out.bad_request();
+                out.bad_request().json(INVALID_CONTENT_TYPE);
             }
         } else {
-            out.method_not_allowed();
+            out.method_not_allowed().json(invalid_method_response!(
+                rq.method(),
+                HTTP_POST_METHOD,
+                true
+            ));
         }
     });
 
     server.route_func(CREDITS_ROUTE, |_rq, out| {
-        out.json(CREDITS);
+        out.json(CREDITS).ok();
     });
 
     server.port(
