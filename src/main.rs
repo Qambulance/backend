@@ -17,6 +17,7 @@ const HTTP_POST_METHOD: &str = "POST";
 const HTTP_FORM_ENCODED_CONTENT: &str = "application/x-www-form-urlencoded";
 
 const DEFAULT_PORT: u16 = 7878;
+const HOST: &str = "0.0.0.0";
 const PORT_ENVIRONMENT_VAR: &str = "PORT";
 const OVERPASS_URL: &str = "https://overpass-api.de/api/interpreter";
 
@@ -380,6 +381,7 @@ fn server() -> Blank {
             .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(DEFAULT_PORT),
     );
+    server.host(HOST);
     println!(
         "Listening on http://{}:{}",
         server.get_host(),
