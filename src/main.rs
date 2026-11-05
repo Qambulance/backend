@@ -3,7 +3,8 @@ use serde::Deserialize;
 use serde_json::from_str;
 use std::env::var as env_var;
 use std::process::exit as exit_with_exit_code;
-use ureq::post as post_http;
+use std::time::Duration;
+use ureq::Agent as HttpAgent;
 
 const HOME_ROUTE: &str = "/";
 const QUICK_ROUTE: &str = "/quick";
@@ -20,6 +21,9 @@ const DEFAULT_PORT: u16 = 7878;
 const HOST: &str = "0.0.0.0";
 const PORT_ENVIRONMENT_VAR: &str = "PORT";
 const OVERPASS_URL: &str = "https://overpass-api.de/api/interpreter";
+const OVERPASS_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const OVERPASS_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const OVERPASS_RESPONSE_LIMIT: u64 = 2 * 1024 * 1024;
 
 const CREDITS: &str = r#"{
     "credits": [
@@ -228,6 +232,14 @@ fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> u64 {
     (earth_radius * 2.0 * a.sqrt().asin()).round() as u64
 }
 
+fn api_agent() -> HttpAgent {
+    HttpAgent::config_builder()
+        .timeout_connect(Some(OVERPASS_CONNECT_TIMEOUT))
+        .timeout_global(Some(OVERPASS_REQUEST_TIMEOUT))
+        .build()
+        .into()
+}
+
 fn server() -> Blank {
     let mut server = Blank::new();
 
@@ -299,12 +311,18 @@ fn server() -> Blank {
 
                 let query = overpass_query!(user_latitude, user_longitude);
 
-                let response = post_http(OVERPASS_URL)
+                let response = api_agent()
+                    .post(OVERPASS_URL)
                     .header(HTTP_CONTENT_TYPE_HEADER, HTTP_FORM_ENCODED_CONTENT)
                     .send_form([("data", query.as_str())]);
 
                 match response {
-                    Ok(response) => match response.into_body().read_to_string() {
+                    Ok(response) => match response
+                        .into_body()
+                        .with_config()
+                        .limit(OVERPASS_RESPONSE_LIMIT)
+                        .read_to_string()
+                    {
                         Ok(body) => match from_str::<OverpassResponse>(&body) {
                             Ok(data) => {
                                 let hospitals: Vec<_> = data
