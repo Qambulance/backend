@@ -1,7 +1,17 @@
 use blank_web::Blank;
 use serde::Deserialize;
 use serde_json::from_str;
+use std::env::var as env_var;
 use ureq::post as post_http;
+
+const DEFAULT_PORT: u16 = 7878;
+const CREDITS: &str = r#"{
+    "credits": [
+        "This API was created by": "Kyam (Kushaal Srinandan Reddy B <koolcoolkoolcoolkoolkool@gmail.com>)",
+        "Overpass": "This API uses overpass"
+    ],
+    "thanks for": "asking"
+}"#;
 
 #[derive(Default, Deserialize)]
 struct Location {
@@ -192,16 +202,15 @@ fn main() {
     });
 
     server.route_func("/credits", |_rq, out| {
-        out.json(r#"{
-    "credits": [
-        "This API was created by": "Kyam (Kushaal Srinandan Reddy B <koolcoolkoolcoolkoolkool@gmail.com>)",
-        "Overpass": "This API uses overpass"
-    ],
-    "thanks for": "asking"
-}"#);
+        out.json(CREDITS);
     });
 
-    server.port(5748);
+    server.port(
+        env_var("PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(DEFAULT_PORT),
+    );
     println!(
         "Listening on http://{}:{}",
         server.get_host(),
