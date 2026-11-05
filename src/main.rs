@@ -4,7 +4,19 @@ use serde_json::from_str;
 use std::env::var as env_var;
 use ureq::post as post_http;
 
+const HOME_ROUTE: &str = "/";
+const QUICK_ROUTE: &str = "/quick";
+// const HELP_ROUTE: &str = "/help";
+const CREDITS_ROUTE: &str = "/credits";
+
+const HTTP_JSON_CONTEXT: &str = "application/json";
+const HTTP_CONTENT_TYPE_HEADER: &str = "Content-Type";
+const HTTP_FORM_ENCODED_CONTENT: &str = "application/x-www-form-urlencoded";
+
 const DEFAULT_PORT: u16 = 7878;
+const PORT_ENVIRONMENT_VAR: &str = "PORT";
+const OVERPASS_URL: &str = "https://overpass-api.de/api/interpreter";
+
 const CREDITS: &str = r#"{
     "credits": [
         "This API was created by": "Kyam (Kushaal Srinandan Reddy B <koolcoolkoolcoolkoolkool@gmail.com>)",
@@ -67,7 +79,7 @@ fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> u64 {
 fn main() {
     let mut server = Blank::new();
 
-    server.route_func("/", |_rq, out| {
+    server.route_func(HOME_ROUTE, |_rq, out| {
         out.json(
             "{\
         \"message\": \"Hello, Bro!\"\
@@ -75,7 +87,7 @@ fn main() {
         );
     });
 
-    server.route_func("/quick", |rq, out| {
+    server.route_func(QUICK_ROUTE, |rq, out| {
         if rq.is_post() {
             if rq
                 .content_type()
@@ -84,7 +96,7 @@ fn main() {
                 .next()
                 .unwrap_or_default()
                 .trim()
-                == "application/json"
+                == HTTP_JSON_CONTEXT
             {
                 let QambulanceQuickQuery {
                     location:
@@ -131,8 +143,8 @@ fn main() {
                     user_longitude
                 );
 
-                let response = post_http("https://overpass-api.de/api/interpreter")
-                    .header("Content-Type", "application/x-www-form-urlencoded")
+                let response = post_http(OVERPASS_URL)
+                    .header(HTTP_CONTENT_TYPE_HEADER, HTTP_FORM_ENCODED_CONTENT)
                     .send_form([("data", query.as_str())]);
 
                 match response {
@@ -201,12 +213,12 @@ fn main() {
         }
     });
 
-    server.route_func("/credits", |_rq, out| {
+    server.route_func(CREDITS_ROUTE, |_rq, out| {
         out.json(CREDITS);
     });
 
     server.port(
-        env_var("PORT")
+        env_var(PORT_ENVIRONMENT_VAR)
             .ok()
             .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(DEFAULT_PORT),
