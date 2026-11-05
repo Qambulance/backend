@@ -6,7 +6,7 @@ use ureq::post as post_http;
 
 const HOME_ROUTE: &str = "/";
 const QUICK_ROUTE: &str = "/quick";
-// const HELP_ROUTE: &str = "/help";
+const HELP_ROUTE: &str = "/help";
 const CREDITS_ROUTE: &str = "/credits";
 
 const HTTP_JSON_CONTEXT: &str = "application/json";
@@ -29,7 +29,62 @@ const CREDITS: &str = r#"{
 
 const HELLO_MESSAGE: &str = r#"{
     "ok": true,
-    "message": "Hello, Bro!"
+    "message": "Hello, User! Request /help to get info about this API"
+}"#;
+
+const HELP_MESSAGE: &str = r#"{
+    "ok": true,
+    "message": "Qambulance API - Fast Responses for Fast Action",
+    "description": "Find nearby hospitals using geographical coordinates.",
+    "endpoints": {
+        "/": {
+            "method": "GET",
+            "description": "Check whether the API is running.",
+            "response": {
+                "ok": true,
+                "message": "Hello, User! Request /help to get info about this API"
+            }
+        },
+        "/quick": {
+            "method": "POST",
+            "description": "Find hospitals within 5 kilometres of the supplied location.",
+            "content_type": "application/json",
+            "request_body": {
+                "location": {
+                    "latitude": "number (-90 to 90)",
+                    "longitude": "number (-180 to 180)"
+                }
+            },
+            "response": {
+                "ok": true,
+                "hospitals": [
+                    {
+                        "name": "Hospital name",
+                        "latitude": "number",
+                        "longitude": "number",
+                        "distance": "distance in metres"
+                    }
+                ],
+                "msg": "Successfully returned hospitals"
+            }
+        },
+        "/help": {
+            "method": "GET",
+            "description": "Display API documentation."
+        },
+        "/credits": {
+            "method": "GET",
+            "description": "Display API credits and acknowledgements."
+        }
+    },
+    "errors": {
+        "400": "Invalid request body, content type, JSON, or coordinates.",
+        "405": "HTTP method not allowed.",
+        "500": "Internal server error or Overpass API failure."
+    },
+    "data_source": "OpenStreetMap via Overpass API",
+    "distance_unit": "metres",
+    "default_search_radius": 5000
 }"#;
 
 const INVALID_JSON_STRUCTURE: &str = r#"{
@@ -75,11 +130,16 @@ const OVERPASS_RESPONSE_PARSE_FAILED: &str = r#"{
 }"#;
 
 macro_rules! invalid_method_response {
-    ($method:expr, $valid_method:expr, $use_hospitals:expr) => {
+    ($method:expr, $valid_method:expr, $use_hospitals:expr, $use_endpoints:expr) => {
         format!(
-            "{{ \"ok\": false, {}, \"{}\": \"Invalid method {}, use {}\" }}",
+            "{{ \"ok\": false,{}{} \"{}\": \"Invalid method {}, use {}\" }}",
             if $use_hospitals {
-                "\"hospitals\": []"
+                " \"hospitals\": [],"
+            } else {
+                ""
+            },
+            if $use_endpoints {
+                "  \"endpoints\": [],"
             } else {
                 ""
             },
@@ -174,11 +234,25 @@ fn main() {
             out.method_not_allowed().json(invalid_method_response!(
                 rq.method(),
                 HTTP_GET_METHOD,
+                false,
                 false
             ));
             return;
         }
         out.json(HELLO_MESSAGE).ok();
+    });
+
+    server.route_func(HELP_ROUTE, |rq, out| {
+        if !rq.is_get() {
+            out.method_not_allowed().json(invalid_method_response!(
+                rq.method(),
+                HTTP_GET_METHOD,
+                false,
+                true
+            ));
+            return;
+        }
+        out.json(HELP_MESSAGE).ok();
     });
 
     server.route_func(QUICK_ROUTE, |rq, out| {
@@ -289,7 +363,8 @@ fn main() {
             out.method_not_allowed().json(invalid_method_response!(
                 rq.method(),
                 HTTP_POST_METHOD,
-                true
+                true,
+                false
             ));
         }
     });
