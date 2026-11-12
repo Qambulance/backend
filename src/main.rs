@@ -371,11 +371,13 @@ fn server() -> Blank {
                                 out.json(result.to_string()).ok();
                             }
                             Err(_) => {
-                                out.internal_server_error().json(OVERPASS_RESPONSE_PARSE_FAILED);
+                                out.internal_server_error()
+                                    .json(OVERPASS_RESPONSE_PARSE_FAILED);
                             }
                         },
                         Err(_) => {
-                            out.internal_server_error().json(OVERPASS_RESPONSE_READ_FAILED);
+                            out.internal_server_error()
+                                .json(OVERPASS_RESPONSE_READ_FAILED);
                         }
                     },
                     Err(_) => {
