@@ -270,7 +270,7 @@ fn server() -> Blank {
         out.json(HELP_MESSAGE).ok();
     });
 
-    server.route_func(QUICK_ROUTE, |rq, out| {
+    server.route_func(QUICK_ROUTE, move |rq, out| {
         if rq.is_post() {
             if rq
                 .content_type()
