@@ -371,17 +371,17 @@ fn server() -> Blank {
                                 out.json(result.to_string()).ok();
                             }
                             Err(_) => {
-                                out.json(OVERPASS_RESPONSE_PARSE_FAILED)
-                                    .internal_server_error();
+                                out.internal_server_error()
+                                    .json(OVERPASS_RESPONSE_PARSE_FAILED);
                             }
                         },
                         Err(_) => {
-                            out.json(OVERPASS_RESPONSE_READ_FAILED)
-                                .internal_server_error();
+                            out.internal_server_error()
+                                .json(OVERPASS_RESPONSE_READ_FAILED);
                         }
                     },
                     Err(_) => {
-                        out.json(OVERPASS_REQUEST_FAILED).internal_server_error();
+                        out.internal_server_error().json(OVERPASS_REQUEST_FAILED);
                     }
                 }
             } else {
