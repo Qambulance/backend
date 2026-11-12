@@ -319,7 +319,7 @@ fn server() -> Blank {
 
                 let query = overpass_query!(user_latitude, user_longitude);
 
-                let response = api_agent
+                let response = api_agent()
                     .post(OVERPASS_URL)
                     .header(HTTP_CONTENT_TYPE_HEADER, HTTP_FORM_ENCODED_CONTENT)
                     .send_form([("data", query.as_str())]);
