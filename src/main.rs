@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::from_str;
 use std::env::var as env_var;
 use std::process::exit as exit_with_exit_code;
+use std::sync::OnceLock;
 use std::time::Duration;
 use ureq::Agent as HttpAgent;
 
@@ -235,14 +236,20 @@ fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> u64 {
     (earth_radius * 2.0 * a.sqrt().asin()).round() as u64
 }
 
+fn api_agent() -> &'static HttpAgent {
+    static API_AGENT: OnceLock<HttpAgent> = OnceLock::new();
+
+    API_AGENT.get_or_init(|| {
+        HttpAgent::config_builder()
+            .timeout_connect(Some(OVERPASS_CONNECT_TIMEOUT))
+            .timeout_global(Some(OVERPASS_REQUEST_TIMEOUT))
+            .build()
+            .into()
+    })
+}
+
 fn server() -> Blank {
     let mut server = Blank::new();
-
-    let api_agent: HttpAgent = HttpAgent::config_builder()
-        .timeout_connect(Some(OVERPASS_CONNECT_TIMEOUT))
-        .timeout_global(Some(OVERPASS_REQUEST_TIMEOUT))
-        .build()
-        .into();
 
     server.route_func(HOME_ROUTE, |rq, out| {
         if !rq.is_get() {
@@ -270,7 +277,7 @@ fn server() -> Blank {
         out.json(HELP_MESSAGE).ok();
     });
 
-    server.route_func(QUICK_ROUTE, move |rq, out| {
+    server.route_func(QUICK_ROUTE, |rq, out| {
         if rq.is_post() {
             if rq
                 .content_type()
