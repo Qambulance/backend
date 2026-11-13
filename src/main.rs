@@ -76,7 +76,11 @@ const HELP_MESSAGE: &str = r#"{
                         "longitude": "number",
                         "distance": "distance in metres",
                         "phone_number": "string or null; sourced from OpenStreetMap contact tags",
-                        "directions_url": "Google Maps directions URL to this hospital"
+                        "directions_url": "Google Maps directions URL to this hospital",
+                        "address": "string or null; composed from available OpenStreetMap address tags",
+                        "facility_type": "string or null; sourced from OpenStreetMap healthcare tags",
+                        "emergency_department": "string or null; sourced from the emergency tag",
+                        "specialities": "string or null; sourced from the healthcare:speciality tag"
                     }
                 ],
                 "msg": "Successfully returned hospitals"
@@ -244,6 +248,35 @@ fn directions_url(latitude: f64, longitude: f64) -> String {
     format!("https://www.google.com/maps/dir/?api=1&destination={latitude},{longitude}")
 }
 
+fn tag_value(tags: Option<&HospitalInfo>, keys: &[&str]) -> Option<String> {
+    let tags = tags?;
+    keys.iter().find_map(|key| {
+        tags.other_tags
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    })
+}
+
+fn hospital_address(tags: Option<&HospitalInfo>) -> Option<String> {
+    let tags = tags?;
+    tag_value(Some(tags), &["addr:full"]).or_else(|| {
+        let parts = [
+            tag_value(Some(tags), &["addr:housenumber"]),
+            tag_value(Some(tags), &["addr:street"]),
+            tag_value(Some(tags), &["addr:suburb", "addr:district"]),
+            tag_value(Some(tags), &["addr:city", "addr:town", "addr:village"]),
+            tag_value(Some(tags), &["addr:postcode"]),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        (!parts.is_empty()).then(|| parts.join(", "))
+    })
+}
+
 fn hospital_result(hospital: Hospital, user_latitude: f64, user_longitude: f64) -> Option<Value> {
     let latitude = hospital
         .lat
@@ -259,6 +292,13 @@ fn hospital_result(hospital: Hospital, user_latitude: f64, user_longitude: f64) 
         .filter(|name| !name.is_empty())
         .unwrap_or("Unnamed hospital");
     let phone_number = phone_number(hospital.tags.as_ref());
+    let address = hospital_address(hospital.tags.as_ref());
+    let facility_type = tag_value(hospital.tags.as_ref(), &["healthcare", "amenity"]);
+    let emergency_department = tag_value(hospital.tags.as_ref(), &["emergency"]);
+    let specialities = tag_value(
+        hospital.tags.as_ref(),
+        &["healthcare:speciality", "medical_specialty"],
+    );
     let distance = calculate_distance(user_latitude, user_longitude, latitude, longitude);
 
     Some(serde_json::json!({
@@ -267,7 +307,11 @@ fn hospital_result(hospital: Hospital, user_latitude: f64, user_longitude: f64) 
         "distance": distance,
         "name": name,
         "phone_number": phone_number,
-        "directions_url": directions_url(latitude, longitude)
+        "directions_url": directions_url(latitude, longitude),
+        "address": address,
+        "facility_type": facility_type,
+        "emergency_department": emergency_department,
+        "specialities": specialities
     }))
 }
 
@@ -462,7 +506,11 @@ mod tests {
             "lon": 13.41,
             "tags": {
                 "name": "Test Hospital",
-                "contact:phone": "+49 30 123456"
+                "contact:phone": "+49 30 123456",
+                "addr:full": "Hospital Lane 4, Berlin",
+                "healthcare": "hospital",
+                "emergency": "yes",
+                "healthcare:speciality": "cardiology"
             }
         }))
         .unwrap();
@@ -470,6 +518,10 @@ mod tests {
         let result = hospital_result(hospital, 52.50, 13.40).unwrap();
 
         assert_eq!(result["phone_number"], "+49 30 123456");
+        assert_eq!(result["address"], "Hospital Lane 4, Berlin");
+        assert_eq!(result["facility_type"], "hospital");
+        assert_eq!(result["emergency_department"], "yes");
+        assert_eq!(result["specialities"], "cardiology");
         assert_eq!(
             result["directions_url"],
             "https://www.google.com/maps/dir/?api=1&destination=52.51,13.41"
