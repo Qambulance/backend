@@ -58,3 +58,11 @@ Methods changed: `bad_request`, `unauthorized`, `forbidden`, `not_found`, `metho
 **160 tests pass, 0 warnings after fix.**
 
 Once the PR is merged and a new version is published to crates.io, the workaround in `qambulance-backend/src/main.rs` (branch `fix/debug-quick-500`) can be reverted — both call orders will work correctly from that point on.
+
+## 2026-11-13 — `/quick` phone and directions fields
+
+- Added `phone_number` to each returned hospital, using OpenStreetMap tags in this order: `phone`, `contact:phone`, `contact:mobile`, `mobile`. Missing or blank phone tags return JSON `null`; names, coordinates, and distance remain unchanged.
+- Added `directions_url`, a Google Maps directions URL targeting each hospital's coordinates. With no origin specified, Maps can use the user's current location.
+- Updated `/help` to document both response fields.
+- Added unit tests for phone tag preference, missing phone data, directions URL output, and omission of hospitals with no coordinates.
+- Verification: `cargo fmt --check`, `cargo test` (3 tests), and CI-equivalent Clippy command all pass.

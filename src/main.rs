@@ -6,7 +6,9 @@ use blank_web::{
     },
 };
 use serde::Deserialize;
+use serde_json::Value;
 use serde_json::from_str;
+use std::collections::HashMap;
 use std::env::var as env_var;
 use std::process::exit as exit_with_exit_code;
 use std::sync::OnceLock;
@@ -72,7 +74,9 @@ const HELP_MESSAGE: &str = r#"{
                         "name": "Hospital name",
                         "latitude": "number",
                         "longitude": "number",
-                        "distance": "distance in metres"
+                        "distance": "distance in metres",
+                        "phone_number": "string or null; sourced from OpenStreetMap contact tags",
+                        "directions_url": "Google Maps directions URL to this hospital"
                     }
                 ],
                 "msg": "Successfully returned hospitals"
@@ -199,6 +203,8 @@ struct QambulanceQuickQuery {
 #[derive(Deserialize)]
 struct HospitalInfo {
     name: Option<String>,
+    #[serde(flatten)]
+    other_tags: HashMap<String, Value>,
 }
 
 #[derive(Deserialize)]
@@ -218,6 +224,51 @@ struct Hospital {
     lon: Option<f64>,
     center: Option<Center>,
     tags: Option<HospitalInfo>,
+}
+
+fn phone_number(tags: Option<&HospitalInfo>) -> Option<String> {
+    let tags = tags?;
+    ["phone", "contact:phone", "contact:mobile", "mobile"]
+        .iter()
+        .find_map(|key| {
+            tags.other_tags
+                .get(*key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        })
+}
+
+fn directions_url(latitude: f64, longitude: f64) -> String {
+    format!("https://www.google.com/maps/dir/?api=1&destination={latitude},{longitude}")
+}
+
+fn hospital_result(hospital: Hospital, user_latitude: f64, user_longitude: f64) -> Option<Value> {
+    let latitude = hospital
+        .lat
+        .or_else(|| hospital.center.as_ref().map(|center| center.lat))?;
+    let longitude = hospital
+        .lon
+        .or_else(|| hospital.center.as_ref().map(|center| center.lon))?;
+    let name = hospital
+        .tags
+        .as_ref()
+        .and_then(|tags| tags.name.as_deref())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("Unnamed hospital");
+    let phone_number = phone_number(hospital.tags.as_ref());
+    let distance = calculate_distance(user_latitude, user_longitude, latitude, longitude);
+
+    Some(serde_json::json!({
+        "latitude": latitude,
+        "longitude": longitude,
+        "distance": distance,
+        "name": name,
+        "phone_number": phone_number,
+        "directions_url": directions_url(latitude, longitude)
+    }))
 }
 
 /// Uses Haversine formula
@@ -337,32 +388,7 @@ fn server() -> Blank {
                                     .elements
                                     .into_iter()
                                     .filter_map(|hospital| {
-                                        let latitude = hospital
-                                            .lat
-                                            .or_else(|| hospital.center.as_ref().map(|c| c.lat))?;
-
-                                        let longitude = hospital
-                                            .lon
-                                            .or_else(|| hospital.center.as_ref().map(|c| c.lon))?;
-
-                                        let distance = calculate_distance(
-                                            user_latitude,
-                                            user_longitude,
-                                            latitude,
-                                            longitude,
-                                        );
-
-                                        let name = hospital
-                                            .tags
-                                            .and_then(|tags| tags.name)
-                                            .unwrap_or_else(|| "Unnamed hospital".to_string());
-
-                                        Some(serde_json::json!({
-                                            "latitude": latitude,
-                                            "longitude": longitude,
-                                            "distance": distance,
-                                            "name": name
-                                        }))
+                                        hospital_result(hospital, user_latitude, user_longitude)
                                     })
                                     .collect();
 
@@ -422,4 +448,71 @@ fn main() {
         Ok(_) => 0,
         Err(_) => 1,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Hospital, hospital_result};
+    use serde_json::json;
+
+    #[test]
+    fn hospital_result_includes_phone_number_and_directions_url() {
+        let hospital: Hospital = serde_json::from_value(json!({
+            "lat": 52.51,
+            "lon": 13.41,
+            "tags": {
+                "name": "Test Hospital",
+                "contact:phone": "+49 30 123456"
+            }
+        }))
+        .unwrap();
+
+        let result = hospital_result(hospital, 52.50, 13.40).unwrap();
+
+        assert_eq!(result["phone_number"], "+49 30 123456");
+        assert_eq!(
+            result["directions_url"],
+            "https://www.google.com/maps/dir/?api=1&destination=52.51,13.41"
+        );
+    }
+
+    #[test]
+    fn hospital_result_uses_phone_tag_before_contact_phone_and_returns_null_when_missing() {
+        let hospital_with_both: Hospital = serde_json::from_value(json!({
+            "lat": 52.51,
+            "lon": 13.41,
+            "tags": {
+                "name": "Test Hospital",
+                "phone": "+49 30 111111",
+                "contact:phone": "+49 30 222222"
+            }
+        }))
+        .unwrap();
+        let hospital_without_phone: Hospital = serde_json::from_value(json!({
+            "lat": 52.51,
+            "lon": 13.41,
+            "tags": { "name": "No Phone Hospital" }
+        }))
+        .unwrap();
+
+        let with_phone = hospital_result(hospital_with_both, 52.50, 13.40).unwrap();
+        let without_phone = hospital_result(hospital_without_phone, 52.50, 13.40).unwrap();
+
+        assert_eq!(with_phone["phone_number"], "+49 30 111111");
+        assert!(without_phone["phone_number"].is_null());
+        assert_eq!(
+            without_phone["directions_url"],
+            "https://www.google.com/maps/dir/?api=1&destination=52.51,13.41"
+        );
+    }
+
+    #[test]
+    fn hospital_without_coordinates_is_omitted() {
+        let hospital: Hospital = serde_json::from_value(json!({
+            "tags": { "name": "Unlocatable Hospital" }
+        }))
+        .unwrap();
+
+        assert!(hospital_result(hospital, 52.50, 13.40).is_none());
+    }
 }
